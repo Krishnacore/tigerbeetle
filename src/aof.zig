@@ -926,7 +926,7 @@ pub fn main() !void {
         defer it.close();
 
         var addresses_buffer: [constants.replicas_max]std.net.Address = undefined;
-        const addresses_parsed = try vsr.parse_addresses(addresses.?, &addresses_buffer);
+        const addresses_parsed = try vsr.parse_addresses(allocator, addresses.?, &addresses_buffer);
         var replay = try AOFReplayClient.init(&io, allocator, time, addresses_parsed);
         defer replay.deinit(allocator);
 

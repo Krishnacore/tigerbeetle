@@ -1307,6 +1307,7 @@ fn parse_args_amqp(amqp: CLIArgs.AMQP) Command.AMQP {
 }
 
 /// Parse and allocate the addresses returning a slice into that array.
+/// Supports IPv4, IPv6, and DNS hostnames. DNS resolution is performed synchronously.
 fn parse_addresses(
     raw_addresses: []const u8,
     comptime flag: []const u8,
@@ -1315,7 +1316,12 @@ fn parse_addresses(
     comptime assert(std.mem.startsWith(u8, flag, "--"));
     var result: BoundedArray = .{};
 
+    // Use a fixed buffer allocator for DNS resolution (only needed temporarily)
+    var dns_buffer: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&dns_buffer);
+
     const addresses_parsed = vsr.parse_addresses(
+        fba.allocator(),
         raw_addresses,
         result.unused_capacity_slice(),
     ) catch |err| switch (err) {
@@ -1333,6 +1339,12 @@ fn parse_addresses(
         error.PortOverflow => vsr.fatal(.cli, flag ++ ": port exceeds 65535", .{}),
         error.PortInvalid => vsr.fatal(.cli, flag ++ ": invalid port", .{}),
         error.AddressInvalid => vsr.fatal(.cli, flag ++ ": invalid IPv4 or IPv6 address", .{}),
+        error.HostnameUnresolved => {
+            vsr.fatal(.cli, flag ++ ": could not resolve hostname", .{});
+        },
+        error.DnsResolutionFailed => vsr.fatal(.cli, flag ++ ": DNS resolution failed", .{}),
+        error.OutOfMemory => vsr.fatal(.cli, flag ++ ": out of memory", .{}),
+        error.Unexpected => vsr.fatal(.cli, flag ++ ": unexpected error", .{}),
     };
     assert(addresses_parsed.len > 0);
     assert(addresses_parsed.len <= result.capacity());
@@ -1347,7 +1359,11 @@ fn parse_address_and_port(
 ) std.net.Address {
     comptime assert(std.mem.startsWith(u8, flag, "--"));
 
-    const address = vsr.parse_address_and_port(.{
+    // Use a fixed buffer allocator for DNS resolution (only needed temporarily)
+    var dns_buffer: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&dns_buffer);
+
+    const address = vsr.parse_address_and_port(fba.allocator(), .{
         .string = raw_address,
         .port_default = port_default,
     }) catch |err| switch (err) {
@@ -1357,6 +1373,12 @@ fn parse_address_and_port(
         error.PortOverflow => vsr.fatal(.cli, flag ++ ": port exceeds 65535", .{}),
         error.PortInvalid => vsr.fatal(.cli, flag ++ ": invalid port", .{}),
         error.AddressInvalid => vsr.fatal(.cli, flag ++ ": invalid IPv4 or IPv6 address", .{}),
+        error.HostnameUnresolved => {
+            vsr.fatal(.cli, flag ++ ": could not resolve hostname", .{});
+        },
+        error.DnsResolutionFailed => vsr.fatal(.cli, flag ++ ": DNS resolution failed", .{}),
+        error.OutOfMemory => vsr.fatal(.cli, flag ++ ": out of memory", .{}),
+        error.Unexpected => vsr.fatal(.cli, flag ++ ": unexpected error", .{}),
     };
     return address;
 }

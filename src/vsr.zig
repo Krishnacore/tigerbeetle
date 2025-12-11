@@ -881,7 +881,12 @@ test "exponential_backoff_with_jitter" {
 /// * A replica's IP address may be changed without reconfiguration.
 /// This does require that the user specify the same order to all replicas.
 /// The caller owns the memory of the returned slice of addresses.
+///
+/// Supports IPv4, IPv6, and DNS hostnames. DNS resolution is performed synchronously
+/// at parse time - addresses are resolved once and cached. For Kubernetes/dynamic DNS
+/// environments, this means hostname changes require a restart.
 pub fn parse_addresses(
+    allocator: std.mem.Allocator,
     raw: []const u8,
     out_buffer: []std.net.Address,
 ) ![]std.net.Address {
@@ -893,7 +898,7 @@ pub fn parse_addresses(
     while (comma_iterator.next()) |raw_address| : (index += 1) {
         assert(index < out_buffer.len);
         if (raw_address.len == 0) return error.AddressHasTrailingComma;
-        out_buffer[index] = try parse_address_and_port(.{
+        out_buffer[index] = try parse_address_and_port(allocator, .{
             .string = raw_address,
             .port_default = constants.port,
         });
@@ -903,7 +908,17 @@ pub fn parse_addresses(
     return out_buffer[0..address_count];
 }
 
+/// Parses a string containing an address with optional port.
+/// Supports IPv4, IPv6 (bracketed), DNS hostnames, and port-only strings.
+///
+/// Examples:
+/// - "192.168.1.1:8080" → IPv4 with port
+/// - "[::1]:9000" → IPv6 with port
+/// - "example.com:5672" → DNS hostname with port
+/// - "example.com" → DNS hostname with default port
+/// - "8080" → default address (127.0.0.1) with specified port
 pub fn parse_address_and_port(
+    allocator: std.mem.Allocator,
     options: struct {
         string: []const u8,
         port_default: u16,
@@ -915,6 +930,7 @@ pub fn parse_address_and_port(
     if (std.mem.lastIndexOfAny(u8, options.string, ":.]")) |split| {
         if (options.string[split] == ':') {
             return parse_address(
+                allocator,
                 options.string[0..split],
                 std.fmt.parseUnsigned(
                     u16,
@@ -926,7 +942,7 @@ pub fn parse_address_and_port(
                 },
             );
         } else {
-            return parse_address(options.string, options.port_default);
+            return parse_address(allocator, options.string, options.port_default);
         }
     } else {
         return std.net.Address.parseIp4(
@@ -939,17 +955,63 @@ pub fn parse_address_and_port(
     }
 }
 
-fn parse_address(string: []const u8, port: u16) !std.net.Address {
+/// Parses an address string as IPv4, IPv6, or DNS hostname.
+/// Attempts parsing in order: IPv6 (if bracketed) → IPv4 → DNS resolution.
+/// DNS resolution prefers IPv4 addresses when available.
+fn parse_address(allocator: std.mem.Allocator, string: []const u8, port: u16) !std.net.Address {
     if (string.len == 0) return error.AddressInvalid;
     if (string[string.len - 1] == ':') return error.AddressHasMoreThanOneColon;
 
+    // First, try parsing as IPv6 address (if bracketed)
     if (string[0] == '[' and string[string.len - 1] == ']') {
         return std.net.Address.parseIp6(string[1 .. string.len - 1], port) catch {
             return error.AddressInvalid;
         };
-    } else {
-        return std.net.Address.parseIp4(string, port) catch return error.AddressInvalid;
     }
+
+    // Next, try parsing as IPv4 address
+    if (std.net.Address.parseIp4(string, port)) |addr| {
+        return addr;
+    } else |_| {}
+
+    // Fall back to DNS resolution for hostnames
+    return resolve_hostname(allocator, string, port);
+}
+
+/// Resolves a hostname to an IP address using DNS resolution.
+/// Prefers IPv4 addresses for compatibility, falls back to IPv6 if needed.
+fn resolve_hostname(
+    allocator: std.mem.Allocator,
+    hostname: []const u8,
+    port: u16,
+) !std.net.Address {
+    const address_list = std.net.getAddressList(
+        allocator,
+        hostname,
+        port,
+    ) catch |err| switch (err) {
+        error.UnknownHostName => return error.HostnameUnresolved,
+        error.TemporaryNameServerFailure,
+        error.NameServerFailure,
+        error.InvalidCharacter,
+        error.InvalidIPAddressFormat,
+        => return error.DnsResolutionFailed,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.Unexpected,
+    };
+    defer address_list.deinit();
+
+    if (address_list.addrs.len == 0) return error.HostnameUnresolved;
+
+    // Prefer IPv4 addresses for compatibility
+    for (address_list.addrs) |address| {
+        if (address.any.family == std.posix.AF.INET) {
+            return address;
+        }
+    }
+
+    // If no IPv4 found, use the first available address (likely IPv6)
+    return address_list.addrs[0];
 }
 
 test parse_addresses {
@@ -1041,15 +1103,15 @@ test parse_addresses {
         err: anyerror![]std.net.Address,
     }{
         .{ .raw = "", .err = error.AddressHasTrailingComma },
-        .{ .raw = ".", .err = error.AddressInvalid },
+        .{ .raw = ".", .err = error.HostnameUnresolved }, // "." treated as hostname, fails DNS
         .{ .raw = ":", .err = error.PortInvalid },
         .{ .raw = ":92", .err = error.AddressInvalid },
         .{ .raw = "1.2.3.4:5,2.3.4.5:6,4.5.6.7:8", .err = error.AddressLimitExceeded },
         .{ .raw = "1.2.3.4:7777,", .err = error.AddressHasTrailingComma },
         .{ .raw = "1.2.3.4:7777,2.3.4.5::8888", .err = error.AddressHasMoreThanOneColon },
-        .{ .raw = "1.2.3.4:5,A", .err = error.AddressInvalid }, // default port
-        .{ .raw = "1.2.3.4:5,2.a.4.5", .err = error.AddressInvalid }, // default port
-        .{ .raw = "1.2.3.4:5,2.a.4.5:6", .err = error.AddressInvalid }, // specified port
+        .{ .raw = "1.2.3.4:5,A", .err = error.AddressInvalid }, // "A" treated as port-only
+        .{ .raw = "1.2.3.4:5,2.a.4.5", .err = error.HostnameUnresolved }, // treated as hostname
+        .{ .raw = "1.2.3.4:5,2.a.4.5:6", .err = error.HostnameUnresolved }, // treated as hostname
         .{ .raw = "1.2.3.4:5,2.3.4.5:", .err = error.PortInvalid },
         .{ .raw = "1.2.3.4:5,2.3.4.5:A", .err = error.PortInvalid },
         .{ .raw = "1.2.3.4:5,65536", .err = error.PortOverflow }, // default address
@@ -1058,7 +1120,7 @@ test parse_addresses {
 
     var buffer: [3]std.net.Address = undefined;
     for (vectors_positive) |vector| {
-        const addresses_actual = try parse_addresses(vector.raw, &buffer);
+        const addresses_actual = try parse_addresses(std.testing.allocator, vector.raw, &buffer);
 
         try std.testing.expectEqual(addresses_actual.len, vector.addresses.len);
         for (vector.addresses, 0..) |address_expect, i| {
@@ -1073,7 +1135,7 @@ test parse_addresses {
     for (vectors_negative) |vector| {
         try std.testing.expectEqual(
             vector.err,
-            parse_addresses(vector.raw, buffer[0..2]),
+            parse_addresses(std.testing.allocator, vector.raw, buffer[0..2]),
         );
     }
 }
@@ -1093,11 +1155,31 @@ test "parse_addresses: fuzz" {
         for (input) |*c| {
             c.* = alphabet[prng.index(alphabet)];
         }
-        if (parse_addresses(input, &buffer)) |addresses| {
+        if (parse_addresses(std.testing.allocator, input, &buffer)) |addresses| {
             assert(addresses.len > 0);
             assert(addresses.len <= 3);
         } else |_| {}
     }
+}
+
+test "parse_address: DNS resolution" {
+    // Test that IPv4 addresses still work
+    const ip4_addr = try parse_address(std.testing.allocator, "192.168.1.1", 8080);
+    try std.testing.expectEqual(@as(u16, 8080), ip4_addr.getPort());
+
+    // Test that IPv6 addresses still work
+    const ip6_addr = try parse_address(std.testing.allocator, "[::1]", 9000);
+    try std.testing.expectEqual(@as(u16, 9000), ip6_addr.getPort());
+
+    // Test DNS resolution with localhost - this should work on all systems
+    const localhost_addr = try parse_address(std.testing.allocator, "localhost", 3000);
+    try std.testing.expectEqual(@as(u16, 3000), localhost_addr.getPort());
+
+    // Test that invalid hostnames fail gracefully
+    try std.testing.expectError(
+        error.HostnameUnresolved,
+        parse_address(std.testing.allocator, "invalid.hostname.does.not.exist.example", 5432),
+    );
 }
 
 pub fn sector_floor(offset: u64) u64 {

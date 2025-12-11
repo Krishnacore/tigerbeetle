@@ -254,6 +254,7 @@ pub fn ContextType(
             log.debug("{}: init: parsing vsr addresses: {s}", .{ context.client_id, addresses });
             context.addresses = .{};
             const addresses_parsed = vsr.parse_addresses(
+                allocator,
                 addresses,
                 context.addresses.unused_capacity_slice(),
             ) catch |err| return switch (err) {
@@ -264,6 +265,11 @@ pub fn ContextType(
                 error.PortInvalid,
                 error.PortOverflow,
                 => error.AddressInvalid,
+                error.HostnameUnresolved,
+                error.DnsResolutionFailed,
+                => error.AddressInvalid,
+                error.OutOfMemory => error.OutOfMemory,
+                error.Unexpected => error.Unexpected,
             };
             assert(addresses_parsed.len > 0);
             assert(addresses_parsed.len <= constants.replicas_max);
