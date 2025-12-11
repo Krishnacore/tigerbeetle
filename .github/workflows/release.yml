@@ -22,6 +22,11 @@ jobs:
 
       - run: ./zig/download.sh
 
+      - name: Build and publish zig (creates release tags)
+        run: ./zig/zig build scripts -- release --build --publish --sha=${{ github.sha }} --language=zig
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and publish Docker
         run: ./zig/zig build scripts -- release --build --publish --sha=${{ github.sha }} --language=docker
         env:
