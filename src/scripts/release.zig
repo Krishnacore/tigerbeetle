@@ -162,7 +162,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     }
 
     if (cli_args.build) {
-        try build(shell, languages, version_info, cli_args.devhub);
+        try build(shell, languages, version_info, cli_args.devhub, cli_args.language != null);
     }
 
     if (cli_args.publish) {
@@ -172,11 +172,14 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     }
 }
 
-fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool) !void {
+fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool, single_language: bool) !void {
     var section = try shell.open_section("build all");
     defer section.close();
 
-    try shell.project_root.deleteTree("zig-out/dist");
+    // Only delete dist tree when building all languages, not when building a single language
+    if (!single_language) {
+        try shell.project_root.deleteTree("zig-out/dist");
+    }
     var dist_dir = try shell.project_root.makeOpenPath("zig-out/dist", .{});
     defer dist_dir.close();
 
