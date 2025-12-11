@@ -556,7 +556,9 @@ fn publish(
     var section = try shell.open_section("publish all");
     defer section.close();
 
-    { // Sanity check that the new release doesn't exist but the multiversion does.
+    // Sanity check that the new release doesn't exist but the multiversion does.
+    // Only run this check when publishing zig, since docker/rust don't require it.
+    if (languages.contains(.zig)) {
         var tag_multiversion_exists = false;
         var tag_exists = false;
         const tags_exiting = try shell.exec_stdout(
