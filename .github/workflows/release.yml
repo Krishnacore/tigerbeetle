@@ -2,6 +2,9 @@ name: Release
 permissions: {}
 
 on:
+  push:
+    branches:
+      - release
   workflow_dispatch:
 
 jobs:
@@ -21,6 +24,9 @@ jobs:
       - run: rustup default 1.63 && rustup component add clippy rustfmt
 
       - run: ./zig/download.sh
+
+      - name: Build tigerbeetle binaries
+        run: ./zig/zig build scripts -- release --build --sha=${{ github.sha }} --language=zig
 
       - name: Build and publish Docker
         run: ./zig/zig build scripts -- release --build --publish --sha=${{ github.sha }} --language=docker
