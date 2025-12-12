@@ -1049,14 +1049,19 @@ pub const LazyAddress = struct {
 /// Resolves a LazyAddress to an IP address.
 /// For IP literals, returns the cached address immediately.
 /// For hostnames, performs DNS resolution (may block).
+/// Uses a temporary stack allocator for DNS resolution to avoid static allocator issues.
 pub fn resolve_lazy_address(
     allocator: std.mem.Allocator,
     addr: *const LazyAddress,
 ) !std.net.Address {
+    _ = allocator; // No longer used - we use a temporary allocator instead
     if (addr.ip) |ip| {
         return ip;
     }
-    return resolve_hostname(allocator, addr.host(), addr.port);
+    // Use a temporary stack allocator for DNS resolution
+    var dns_buffer: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&dns_buffer);
+    return resolve_hostname(fba.allocator(), addr.host(), addr.port);
 }
 
 /// Parses addresses into LazyAddress format without performing DNS resolution.
