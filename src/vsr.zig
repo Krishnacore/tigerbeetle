@@ -1017,14 +1017,33 @@ fn resolve_hostname(
 /// Represents an address that may need DNS resolution at connection time.
 /// For IP literals, the address is pre-resolved. For hostnames, DNS is resolved lazily.
 pub const LazyAddress = struct {
+    /// Maximum hostname length (253 chars per RFC 1035 + null terminator margin).
+    pub const max_host_len = 256;
+
     /// Host portion: either an IPv4/IPv6 literal or a DNS hostname.
-    /// This memory is owned by the caller (typically duped from the config string).
-    host: []const u8,
+    /// Stored inline to avoid allocation lifetime issues.
+    host_buf: [max_host_len]u8 = undefined,
+    host_len: u8 = 0,
     /// Port to connect/listen to.
     port: u16,
     /// For IP literals, this is pre-filled at parse time.
     /// For DNS hostnames, this stays null and is resolved at connection time.
     ip: ?std.net.Address = null,
+
+    pub fn host(self: *const LazyAddress) []const u8 {
+        return self.host_buf[0..self.host_len];
+    }
+
+    pub fn init(host_str: []const u8, port_val: u16, ip_val: ?std.net.Address) LazyAddress {
+        var result = LazyAddress{
+            .port = port_val,
+            .ip = ip_val,
+        };
+        const len: u8 = @intCast(@min(host_str.len, max_host_len));
+        @memcpy(result.host_buf[0..len], host_str[0..len]);
+        result.host_len = len;
+        return result;
+    }
 };
 
 /// Resolves a LazyAddress to an IP address.
@@ -1037,7 +1056,7 @@ pub fn resolve_lazy_address(
     if (addr.ip) |ip| {
         return ip;
     }
-    return resolve_hostname(allocator, addr.host, addr.port);
+    return resolve_hostname(allocator, addr.host(), addr.port);
 }
 
 /// Parses addresses into LazyAddress format without performing DNS resolution.
@@ -1093,16 +1112,14 @@ pub fn parse_address_and_port_lazy(
             error.InvalidCharacter => return error.AddressInvalid,
         };
         const ip = std.net.Address.parseIp4(constants.address, port) catch unreachable;
-        return LazyAddress{
-            .host = constants.address,
-            .port = port,
-            .ip = ip,
-        };
+        return LazyAddress.init(constants.address, port, ip);
     }
 }
 
 /// Parses an address string into a LazyAddress without DNS resolution.
 fn parse_address_lazy(allocator: std.mem.Allocator, string: []const u8, port: u16) !LazyAddress {
+    _ = allocator; // No longer needed - LazyAddress stores host inline
+
     if (string.len == 0) return error.AddressInvalid;
     if (string[string.len - 1] == ':') return error.AddressHasMoreThanOneColon;
 
@@ -1111,28 +1128,16 @@ fn parse_address_lazy(allocator: std.mem.Allocator, string: []const u8, port: u1
         const ip = std.net.Address.parseIp6(string[1 .. string.len - 1], port) catch {
             return error.AddressInvalid;
         };
-        return LazyAddress{
-            .host = try allocator.dupe(u8, string),
-            .port = port,
-            .ip = ip,
-        };
+        return LazyAddress.init(string, port, ip);
     }
 
     // Next, try parsing as IPv4 address
     if (std.net.Address.parseIp4(string, port)) |ip| {
-        return LazyAddress{
-            .host = try allocator.dupe(u8, string),
-            .port = port,
-            .ip = ip,
-        };
+        return LazyAddress.init(string, port, ip);
     } else |_| {}
 
     // It's a hostname - store it for lazy DNS resolution
-    return LazyAddress{
-        .host = try allocator.dupe(u8, string),
-        .port = port,
-        .ip = null,
-    };
+    return LazyAddress.init(string, port, null);
 }
 
 test parse_addresses {

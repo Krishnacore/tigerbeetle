@@ -221,11 +221,7 @@ fn start(allocator: std.mem.Allocator, options: struct {
     };
 
     const ip = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, port);
-    const address = vsr.LazyAddress{
-        .host = "127.0.0.1",
-        .port = port,
-        .ip = ip,
-    };
+    const address = vsr.LazyAddress.init("127.0.0.1", port, ip);
 
     return .{ .child = child, .address = address };
 }

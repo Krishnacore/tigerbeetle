@@ -711,11 +711,7 @@ const VSRContext = struct {
         errdefer self.message_pool.deinit(gpa);
 
         const ip = try std.net.Address.parseIp4("127.0.0.1", port);
-        const address = vsr.LazyAddress{
-            .host = "127.0.0.1",
-            .port = port,
-            .ip = ip,
-        };
+        const address = vsr.LazyAddress.init("127.0.0.1", port, ip);
         self.client = try Client.init(
             gpa,
             time,

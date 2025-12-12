@@ -265,7 +265,6 @@ pub fn ContextType(
                 error.PortInvalid,
                 error.PortOverflow,
                 => error.AddressInvalid,
-                error.OutOfMemory => error.OutOfMemory,
             };
             assert(addresses_parsed.len > 0);
             assert(addresses_parsed.len <= constants.replicas_max);

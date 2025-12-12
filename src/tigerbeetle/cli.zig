@@ -1339,7 +1339,6 @@ fn parse_addresses(
         error.PortOverflow => vsr.fatal(.cli, flag ++ ": port exceeds 65535", .{}),
         error.PortInvalid => vsr.fatal(.cli, flag ++ ": invalid port", .{}),
         error.AddressInvalid => vsr.fatal(.cli, flag ++ ": invalid IPv4 or IPv6 address", .{}),
-        error.OutOfMemory => vsr.fatal(.cli, flag ++ ": out of memory", .{}),
     };
     assert(addresses_parsed.len > 0);
     assert(addresses_parsed.len <= result.capacity());
