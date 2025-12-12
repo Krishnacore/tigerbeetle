@@ -234,7 +234,7 @@ fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool,
     }
 
     if (languages.contains(.rust)) {
-        // Currently disabled.
+        try build_rust(shell, info);
     }
 }
 
@@ -548,6 +548,19 @@ fn build_python(shell: *Shell, info: VersionInfo, dist_dir: std.fs.Dir) !void {
         dist_dir,
         try shell.fmt("tigerbeetle-{s}-py3-none-any.whl", .{info.tag}),
     );
+}
+
+fn build_rust(shell: *Shell, info: VersionInfo) !void {
+    var section = try shell.open_section("build rust");
+    defer section.close();
+
+    try shell.exec_zig(
+        \\build clients:rust -Drelease -Dconfig-release={release_triple}
+        \\ -Dconfig-release-client-min={release_triple_client_min}
+    , .{
+        .release_triple = info.release_triple,
+        .release_triple_client_min = info.release_triple_client_min,
+    });
 }
 
 fn publish(
