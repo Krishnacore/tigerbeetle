@@ -634,8 +634,8 @@ fn publish(
             \\## Server
             \\
             \\* Binary: Download the zip for your OS and architecture from this page and unzip.
-            \\* Docker: `docker pull ghcr.io/tigerbeetle/tigerbeetle:{[tag]s}`
-            \\* Docker (debug image): `docker pull ghcr.io/tigerbeetle/tigerbeetle:{[tag]s}-debug`
+            \\* Docker: `docker pull ghcr.io/krishnacore/tigerbeetle:{[tag]s}`
+            \\* Docker (debug image): `docker pull ghcr.io/krishnacore/tigerbeetle:{[tag]s}-debug`
             \\
             \\## Clients
             \\
@@ -694,6 +694,7 @@ fn publish(
     }
 
     if (languages.contains(.docker)) try publish_docker(shell, info);
+    if (languages.contains(.rust)) try publish_rust(shell, info);
     if (languages.contains(.dotnet)) try publish_dotnet(shell, info);
     if (languages.contains(.go)) try publish_go(shell, info);
     if (languages.contains(.java)) try publish_java(shell, info);
@@ -709,6 +710,21 @@ fn publish(
         // Build our docs last so that if it fails everything else is still released.
         try publish_docs(shell, info);
     }
+}
+
+fn publish_rust(shell: *Shell, info: VersionInfo) !void {
+    var section = try shell.open_section("publish rust");
+    defer section.close();
+
+    _ = info;
+
+    const token = try shell.env_get("CRATES_IO_TOKEN");
+    try shell.pushd("./src/clients/rust");
+    defer shell.popd();
+
+    try shell.exec(
+        \\cargo publish --token {token}
+    , .{ .token = token });
 }
 
 fn publish_dotnet(shell: *Shell, info: VersionInfo) !void {
@@ -922,7 +938,7 @@ fn publish_docker(shell: *Shell, info: VersionInfo) !void {
             \\docker buildx build
             \\   --file - .
             \\   --platform linux/amd64,linux/arm64
-            \\   --tag ghcr.io/tigerbeetle/tigerbeetle:{tag}{debug}
+            \\   --tag ghcr.io/krishnacore/tigerbeetle:{tag}{debug}
             \\   {tag_latest}
             \\   --push
         ,
@@ -931,7 +947,7 @@ fn publish_docker(shell: *Shell, info: VersionInfo) !void {
                 .debug = if (debug) "-debug" else "",
                 .tag_latest = @as(
                     []const []const u8,
-                    if (debug) &.{} else &.{ "--tag", "ghcr.io/tigerbeetle/tigerbeetle:latest" },
+                    if (debug) &.{} else &.{ "--tag", "ghcr.io/krishnacore/tigerbeetle:latest" },
                 ),
             },
         );
@@ -940,7 +956,7 @@ fn publish_docker(shell: *Shell, info: VersionInfo) !void {
         // pushing it out to the registry first. As docker testing isn't covered under not rocket
         // science rule, let's do a best effort after-the-fact testing here.
         const version_verbose = try shell.exec_stdout(
-            \\docker run ghcr.io/tigerbeetle/tigerbeetle:{tag}{debug} version --verbose
+            \\docker run ghcr.io/krishnacore/tigerbeetle:{tag}{debug} version --verbose
         , .{
             .tag = info.tag,
             .debug = if (debug) "-debug" else "",
