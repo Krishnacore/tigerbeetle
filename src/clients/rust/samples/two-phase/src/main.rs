@@ -1,4 +1,4 @@
-use tigerbeetle as tb;
+use cn_tigerbeetle as tb;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
