@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.31"
-tigerbeetle.path = "../.."
+# cn-tigerbeetle = { path = "../.." }
+cn-tigerbeetle = "0.1.1"

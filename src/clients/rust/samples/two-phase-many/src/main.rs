@@ -1,4 +1,4 @@
-use tigerbeetle as tb;
+use cn_tigerbeetle as tb;
 
 async fn assert_account_balances(
     client: &tb::Client,

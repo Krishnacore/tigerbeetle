@@ -1,14 +1,14 @@
 [package]
 name = "cn-tigerbeetle"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
-description = "TigerBeetle client for Rust"
+description = "Cloud-native TigerBeetle client for Rust with DNS-based service discovery"
 license = "Apache-2.0"
-authors = ["TigerBeetle, Inc"]
-homepage = "https://tigerbeetle.com"
-repository = "https://github.com/tigerbeetle/tigerbeetle"
+authors = ["TigerBeetle, Inc", "Krishnacore"]
+homepage = "https://github.com/krishnacore/tigerbeetle"
+repository = "https://github.com/krishnacore/tigerbeetle"
 documentation = "https://docs.rs/tigerbeetle"
-keywords = ["finance", "accounting", "ledger", "database", "transactions"]
+keywords = ["finance", "accounting", "ledger", "database", "kubernetes"]
 categories = ["finance", "database"]
 rust-version = "1.63"
 # Need to do this to pick up the assets directory and exclude zig files

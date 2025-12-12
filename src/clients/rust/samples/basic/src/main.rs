@@ -1,4 +1,4 @@
-use tigerbeetle as tb;
+use cn_tigerbeetle as tb;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     futures::executor::block_on(main_async())
