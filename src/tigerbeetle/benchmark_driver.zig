@@ -139,7 +139,7 @@ fn format(allocator: std.mem.Allocator, options: struct {
 
 const TigerBeetleProcess = struct {
     child: std.process.Child,
-    address: std.net.Address,
+    address: vsr.LazyAddress,
 
     fn deinit(self: *TigerBeetleProcess) std.process.Child.ResourceUsageStatistics {
         // Although we could just kill the child here, let's exercise the "normal" termination logic
@@ -220,7 +220,12 @@ fn start(allocator: std.mem.Allocator, options: struct {
         break :port try std.fmt.parseInt(u16, port_buf[0 .. port_buf_len - 1], 10);
     };
 
-    const address = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, port);
+    const ip = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, port);
+    const address = vsr.LazyAddress{
+        .host = "127.0.0.1",
+        .port = port,
+        .ip = ip,
+    };
 
     return .{ .child = child, .address = address };
 }

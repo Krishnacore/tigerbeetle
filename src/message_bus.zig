@@ -62,7 +62,9 @@ pub fn MessageBusType(comptime IO: type) type {
         /// Map from replica index to the currently active connection for that replica, if any.
         /// The connection for the process replica if any will always be null.
         replicas: []?*Connection,
-        replicas_addresses: []Address,
+        replicas_addresses: []LazyAddress,
+        /// Allocator for DNS resolution at connection time.
+        allocator: mem.Allocator,
         /// The number of outgoing `connect()` attempts for a given replica:
         /// Reset to zero after a successful `on_connect()`.
         replicas_connect_attempts: []u64,
@@ -83,11 +85,12 @@ pub fn MessageBusType(comptime IO: type) type {
         }
 
         pub const Options = struct {
-            configuration: []const Address,
+            configuration: []const LazyAddress,
             io: *IO,
             clients_limit: ?u32 = null,
         };
         const Address = std.net.Address;
+        const LazyAddress = vsr.LazyAddress;
         const MessageBus = @This();
 
         /// Initialize the MessageBus for the given configuration and replica/client process.
@@ -136,9 +139,9 @@ pub fn MessageBusType(comptime IO: type) type {
             errdefer allocator.free(replicas);
             @memset(replicas, null);
 
-            const replicas_addresses = try allocator.alloc(Address, options.configuration.len);
+            const replicas_addresses = try allocator.alloc(LazyAddress, options.configuration.len);
             errdefer allocator.free(replicas_addresses);
-            stdx.copy_disjoint(.exact, Address, replicas_addresses, options.configuration);
+            stdx.copy_disjoint(.exact, LazyAddress, replicas_addresses, options.configuration);
 
             const replicas_connect_attempts = try allocator.alloc(u64, options.configuration.len);
             errdefer allocator.free(replicas_connect_attempts);
@@ -162,6 +165,7 @@ pub fn MessageBusType(comptime IO: type) type {
                 .connections = connections,
                 .replicas = replicas,
                 .replicas_addresses = replicas_addresses,
+                .allocator = allocator,
                 .replicas_connect_attempts = replicas_connect_attempts,
                 .prng = stdx.PRNG.from_seed(prng_seed),
             };
@@ -243,7 +247,17 @@ pub fn MessageBusType(comptime IO: type) type {
             assert(bus.accept_fd == null);
             assert(bus.accept_address == null);
 
-            const address = bus.replicas_addresses[bus.process.replica];
+            // For the replica's own listen address, resolve DNS at startup (fatal on failure)
+            const addr_spec = &bus.replicas_addresses[bus.process.replica];
+            const address = vsr.resolve_lazy_address(bus.allocator, addr_spec) catch |err| {
+                log.err("{}: listen: failed to resolve bind address for replica={}: {s}", .{
+                    bus.id,
+                    bus.process.replica,
+                    @errorName(err),
+                });
+                return err;
+            };
+
             const fd = try init_tcp(bus.io, .replica, address.any.family);
             errdefer bus.io.close_socket(fd);
 
@@ -416,13 +430,28 @@ pub fn MessageBusType(comptime IO: type) type {
 
             assert(connection.state == .free);
             assert(connection.fd == null);
+            connection.connect_address = null;
 
-            const family = bus.replicas_addresses[replica].any.family;
+            // Resolve DNS lazily at connection time
+            const addr_spec = &bus.replicas_addresses[replica];
+            const address = vsr.resolve_lazy_address(bus.allocator, addr_spec) catch |err| {
+                log.warn("{}: connect_to_replica: DNS resolution failed for replica={} err={s}", .{
+                    bus.id,
+                    replica,
+                    @errorName(err),
+                });
+                // Don't reserve this connection; tick_connect() will retry later.
+                return;
+            };
+            connection.connect_address = address;
+
+            const family = address.any.family;
             connection.fd = init_tcp(bus.io, bus.process, family) catch |err| {
                 log.err("{}: connect_to_replica: init_tcp error={s}", .{
                     bus.id,
                     @errorName(err),
                 });
+                connection.connect_address = null;
                 return;
             };
             connection.peer = .{ .replica = replica };
@@ -485,6 +514,12 @@ pub fn MessageBusType(comptime IO: type) type {
             assert(!connection.recv_submitted);
             connection.recv_submitted = true;
 
+            const address = connection.connect_address orelse {
+                log.err("{}: on_connect_with_exponential_backoff: missing connect_address", .{bus.id});
+                bus.terminate(connection, .no_shutdown);
+                return;
+            };
+
             bus.io.connect(
                 *MessageBus,
                 bus,
@@ -492,7 +527,7 @@ pub fn MessageBusType(comptime IO: type) type {
                 // We use `recv_completion` for the connection `timeout()` and `connect()` calls
                 &connection.recv_completion,
                 connection.fd.?,
-                bus.replicas_addresses[connection.peer.replica],
+                address,
             );
         }
 
@@ -1163,6 +1198,8 @@ pub fn MessageBusType(comptime IO: type) type {
             /// It will be reset to null during the shutdown process and is always null if the
             /// connection is unused (i.e. peer == .none).
             fd: ?IO.socket_t = null,
+            /// Resolved address for this connection attempt (from lazy DNS resolution).
+            connect_address: ?std.net.Address = null,
 
             /// This completion is used for all recv operations.
             /// It is also used for the initial connect when establishing a replica connection.

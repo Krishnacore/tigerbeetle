@@ -492,7 +492,7 @@ const lsm_compaction_block_memory_min = lsm_compaction_block_count_min * constan
 /// While CLIArgs store raw arguments as passed on the command line, Command ensures that arguments
 /// are properly validated and desugared (e.g, sizes converted to counts where appropriate).
 pub const Command = union(enum) {
-    const Addresses = stdx.BoundedArrayType(std.net.Address, constants.members_max);
+    const Addresses = stdx.BoundedArrayType(vsr.LazyAddress, constants.members_max);
     const Path = stdx.BoundedArrayType(u8, std.fs.max_path_bytes);
 
     pub const Format = struct {
@@ -1307,7 +1307,7 @@ fn parse_args_amqp(amqp: CLIArgs.AMQP) Command.AMQP {
 }
 
 /// Parse and allocate the addresses returning a slice into that array.
-/// Supports IPv4, IPv6, and DNS hostnames. DNS resolution is performed synchronously.
+/// Supports IPv4, IPv6, and DNS hostnames. DNS resolution is deferred until connection time.
 fn parse_addresses(
     raw_addresses: []const u8,
     comptime flag: []const u8,
@@ -1316,11 +1316,11 @@ fn parse_addresses(
     comptime assert(std.mem.startsWith(u8, flag, "--"));
     var result: BoundedArray = .{};
 
-    // Use a fixed buffer allocator for DNS resolution (only needed temporarily)
-    var dns_buffer: [4096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&dns_buffer);
+    // Use a fixed buffer allocator for string duplication
+    var buffer: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
 
-    const addresses_parsed = vsr.parse_addresses(
+    const addresses_parsed = vsr.parse_addresses_lazy(
         fba.allocator(),
         raw_addresses,
         result.unused_capacity_slice(),
@@ -1339,12 +1339,7 @@ fn parse_addresses(
         error.PortOverflow => vsr.fatal(.cli, flag ++ ": port exceeds 65535", .{}),
         error.PortInvalid => vsr.fatal(.cli, flag ++ ": invalid port", .{}),
         error.AddressInvalid => vsr.fatal(.cli, flag ++ ": invalid IPv4 or IPv6 address", .{}),
-        error.HostnameUnresolved => {
-            vsr.fatal(.cli, flag ++ ": could not resolve hostname", .{});
-        },
-        error.DnsResolutionFailed => vsr.fatal(.cli, flag ++ ": DNS resolution failed", .{}),
         error.OutOfMemory => vsr.fatal(.cli, flag ++ ": out of memory", .{}),
-        error.Unexpected => vsr.fatal(.cli, flag ++ ": unexpected error", .{}),
     };
     assert(addresses_parsed.len > 0);
     assert(addresses_parsed.len <= result.capacity());

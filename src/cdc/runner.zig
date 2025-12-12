@@ -117,7 +117,7 @@ pub const Runner = struct {
             /// TigerBeetle cluster ID.
             cluster_id: u128,
             /// TigerBeetle cluster addresses.
-            addresses: []const std.net.Address,
+            addresses: []const vsr.LazyAddress,
             /// AMQP host address.
             host: std.net.Address,
             /// AMQP User name for PLAIN authentication.

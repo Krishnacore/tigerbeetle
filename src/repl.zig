@@ -648,7 +648,7 @@ pub fn ReplType(comptime MessageBus: type) type {
             io: *IO,
             time: Time,
             options: struct {
-                addresses: []const std.net.Address,
+                addresses: []const vsr.LazyAddress,
                 cluster_id: u128,
                 verbose: bool,
             },

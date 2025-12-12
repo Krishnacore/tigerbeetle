@@ -191,7 +191,7 @@ pub fn ContextType(
         cluster_id: u128,
         addresses_copy: []const u8,
 
-        addresses: stdx.BoundedArrayType(std.net.Address, constants.replicas_max),
+        addresses: stdx.BoundedArrayType(vsr.LazyAddress, constants.replicas_max),
         io: IO,
         message_pool: MessagePool,
         client: Client,
@@ -253,7 +253,7 @@ pub fn ContextType(
 
             log.debug("{}: init: parsing vsr addresses: {s}", .{ context.client_id, addresses });
             context.addresses = .{};
-            const addresses_parsed = vsr.parse_addresses(
+            const addresses_parsed = vsr.parse_addresses_lazy(
                 allocator,
                 addresses,
                 context.addresses.unused_capacity_slice(),
@@ -265,11 +265,7 @@ pub fn ContextType(
                 error.PortInvalid,
                 error.PortOverflow,
                 => error.AddressInvalid,
-                error.HostnameUnresolved,
-                error.DnsResolutionFailed,
-                => error.AddressInvalid,
                 error.OutOfMemory => error.OutOfMemory,
-                error.Unexpected => error.Unexpected,
             };
             assert(addresses_parsed.len > 0);
             assert(addresses_parsed.len <= constants.replicas_max);

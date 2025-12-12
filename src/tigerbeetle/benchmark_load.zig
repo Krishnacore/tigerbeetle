@@ -38,7 +38,7 @@ pub fn main(
     allocator: std.mem.Allocator,
     io: *IO,
     time: Time,
-    addresses: []const std.net.Address,
+    addresses: []const vsr.LazyAddress,
     cli_args: *const cli.Command.Benchmark,
 ) !void {
     if (builtin.mode != .ReleaseSafe and builtin.mode != .ReleaseFast) {
