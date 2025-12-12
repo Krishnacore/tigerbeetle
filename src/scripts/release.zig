@@ -736,7 +736,7 @@ fn publish_rust(shell: *Shell, info: VersionInfo) !void {
     defer shell.popd();
 
     try shell.exec(
-        \\cargo publish --token {token}
+        \\cargo publish --token {token} --allow-dirty
     , .{ .token = token });
 }
 
